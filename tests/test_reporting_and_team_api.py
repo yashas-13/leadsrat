@@ -186,3 +186,36 @@ def test_follow_up_activity_requires_future_time_and_persists_in_organization(cr
         activity = db.get(module.LeadActivity, created.json()["id"])
         assert activity.organization_id == "org-one"
         assert activity.lead_id == "lead-a"
+
+
+def test_session_authorization_uses_current_database_role_not_stale_cookie_claims(crm):
+    module, client = crm["module"], crm["client"]
+    with module.SessionLocal() as db:
+        admin = db.get(module.Employee, "admin-one")
+        org = db.get(module.Organization, "org-one")
+        stale_admin_cookie = module._session_token(admin, org, int(time.time()) + 3600)
+        admin.role = "agent"
+        db.commit()
+
+    denied = client.get("/api/v1/team", headers=_headers(stale_admin_cookie))
+    assert denied.status_code == 403, denied.text
+
+    with module.SessionLocal() as db:
+        agent = db.get(module.Employee, "agent-a")
+        org = db.get(module.Organization, "org-one")
+        stale_agent_cookie = module._session_token(agent, org, int(time.time()) + 3600)
+        agent.role = "admin"
+        db.commit()
+
+    created = client.post(
+        "/api/v1/team",
+        headers=_headers(stale_agent_cookie),
+        json={
+            "name": "New Staff",
+            "email": "new.staff@example.test",
+            "password": "temporary-password-123",
+            "role": "agent",
+        },
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["email"] == "new.staff@example.test"
