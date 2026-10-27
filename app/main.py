@@ -998,3 +998,58 @@ def update_lead_status(lead_id: str, payload: StatusUpdate, request: Request, db
     actor = _actor(request)
     org_id = actor.get("org") or lead.organization_id
     if previous != payload.status:
+        db.add(LeadActivity(organization_id=org_id, lead_id=lead.id, actor_id=actor.get("sub"), activity_type="status_change", message=f"Status changed from {previous} to {payload.status}"))
+    if payload.note:
+        db.add(LeadActivity(organization_id=org_id, lead_id=lead.id, actor_id=actor.get("sub"), activity_type="note", message=payload.note))
+    db.commit()
+    db.refresh(lead)
+    return lead
+
+
+@app.post("/api/v1/properties", response_model=PropertyOut, status_code=201, dependencies=[Depends(require_api_key)])
+def create_property(payload: PropertyCreate, request: Request, db: DB):
+    actor = _actor(request)
+    if actor.get("role") == "readonly": raise HTTPException(status_code=403, detail="Read-only access")
+    prop = Property(**payload.model_dump(), organization_id=actor.get("org"))
+    db.add(prop)
+    db.commit()
+    db.refresh(prop)
+    return prop
+
+
+@app.get("/api/v1/properties", response_model=list[PropertyOut], dependencies=[Depends(require_api_key)])
+def list_properties(request: Request, db: DB, locality: str | None = None, property_type: str | None = None, limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0)):
+    query = _scoped(select(Property), Property, _actor(request)).order_by(Property.created_at.desc()).limit(limit).offset(offset)
+    if locality:
+        query = query.where(func.lower(Property.locality) == locality.lower())
+    if property_type:
+        query = query.where(Property.property_type == property_type)
+    return list(db.scalars(query).all())
+
+
+@app.get("/api/v1/leads/{lead_id}/matches", dependencies=[Depends(require_api_key)])
+def match_properties(lead_id: str, request: Request, db: DB, limit: int = Query(default=20, ge=1, le=100)):
+    actor = _actor(request)
+    lead = db.scalar(_scoped(select(Lead).where(Lead.id == lead_id), Lead, actor))
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    query = _scoped(select(Property), Property, actor).where(Property.availability == "available")
+    if lead.property_type:
+        query = query.where(Property.property_type == lead.property_type)
+    if lead.locality:
+        query = query.where(func.lower(Property.locality) == lead.locality.lower())
+    if lead.budget_min_paise is not None:
+        query = query.where(Property.price_paise >= lead.budget_min_paise)
+    if lead.budget_max_paise is not None:
+        query = query.where(Property.price_paise <= lead.budget_max_paise)
+    props = list(db.scalars(query.order_by(Property.verified_at.desc().nulls_last(), Property.price_paise.asc()).limit(limit)).all())
+    return {"lead_id": lead_id, "matches": [{"property": PropertyOut.model_validate(p), "match_reasons": ["availability and supplied budget/type/locality filters matched"], "availability_verified_at": p.verified_at} for p in props]}
+
+
+@app.get("/health", include_in_schema=False)
+def health():
+    return {"service": "leadsrat-api", "status": "ok"}
+
+
+# Static CRM frontend. Keep this mount last so API/docs routes take precedence.
+app.mount("/", StaticFiles(directory="app/static", html=True), name="frontend")
