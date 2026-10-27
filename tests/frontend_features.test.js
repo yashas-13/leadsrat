@@ -94,6 +94,6 @@ test('report date fields use Asia/Kolkata calendar date rather than browser UTC 
 
 
 test('employee creation controls are restricted to administrator role in the UI', () => {
-  assert.match(html, /addEmployeeBtn\.classList\.toggle\('hidden',!currentUser\|\|currentUser\.role!=='admin'\)/);
+  assert.match(html, /addEmployeeButton\.classList\.toggle\('hidden',!currentUser\|\|currentUser\.role!=='admin'\)/);
   assert.match(html, /Only organization admins can create employees\. Current role:/);
 });
