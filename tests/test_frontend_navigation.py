@@ -29,3 +29,14 @@ def test_lead_form_prevents_past_follow_up_selection():
     assert "followUpInput.min=minDate.toISOString().slice(0,16)" in source
     assert "new Date(followUpInput.value).getTime()<=Date.now())followUpInput.value=''" in source
     assert "Choose a future first follow-up time." in source
+
+def test_pipeline_board_and_reminder_workspace_targets_are_present():
+    dom=DOM(); dom.feed(HTML.read_text())
+    assert {'reminders'} <= dom.pages
+    assert {'reminders'} <= dom.mobile_pages
+    assert {
+        'pipelineBoard', 'pipelineBoardView', 'leadTableView',
+        'leadsBoardToggle', 'leadsTableToggle',
+        'reminderOverdue', 'reminderToday', 'reminderUpcoming',
+        'reminderUnscheduled'
+    } <= dom.ids

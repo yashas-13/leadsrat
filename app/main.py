@@ -20,6 +20,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import BigInteger, Boolean, DateTime, Integer, String, Text, create_engine, func, select, text, ForeignKey
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
+from app.lead_validation import validate_follow_up_timestamp
+
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 API_KEY = os.environ.get("LEADSRAT_API_KEY", "")
 ADMIN_PASSWORD = os.environ.get("LEADSRAT_ADMIN_PASSWORD", "")
@@ -422,6 +424,10 @@ def create_lead_activity(lead_id: str, payload: ActivityCreate, request: Request
     if actor.get("role") == "readonly": raise HTTPException(status_code=403, detail="Read-only access")
     lead = db.scalar(_scoped(select(Lead).where(Lead.id == lead_id), Lead, actor))
     if not lead: raise HTTPException(status_code=404, detail="Lead not found")
+    try:
+        validate_follow_up_timestamp(payload.activity_type, payload.next_follow_up_at)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if payload.activity_type == "call":
         if not payload.call_summary:
             raise HTTPException(status_code=422, detail="A call summary is required for every logged call")

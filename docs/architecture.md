@@ -3,6 +3,8 @@
 ## User experiences
 - Organisation admin/manager web dashboard: `/leadsrat/admin` redirects to the portal-aware login. It presents team workload, recent authenticated activity, lead status, stale leads and overdue follow-ups.
 - Employee/field workspace: `/leadsrat/employee` opens the mobile portal. It includes assigned lead cards, direct call/WhatsApp links, activity notes, status updates and follow-up dates.
+- Lead management: an eight-stage responsive Kanban board, accessible stage selectors, lead search/status filters, and the retained table view.
+- Reminder center: overdue, due-today, upcoming and unscheduled active-lead follow-ups, with in-app activity logging and future-dated rescheduling through the session-scoped activity API. No outbound message or push-notification delivery is configured.
 - The login API validates the account role against the requested portal. UI hiding is convenience only; backend authorization remains authoritative.
 - PWA manifest/icon support mobile installation. Service worker caches a small public application shell only; `/leadsrat/api/` responses and private lead data are never cached.
 

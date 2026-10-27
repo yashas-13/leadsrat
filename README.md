@@ -18,6 +18,8 @@ Portal choice is checked by the login API against the account role. Admin/manage
 - Admins create employee accounts, change roles and suspend/reactivate them. Managers can see team workload and assign leads. Agents are scoped to their assigned leads. Read-only accounts cannot make changes.
 - Lead activity history records creation, assignment, status changes, notes, calls, meetings, email, WhatsApp actions and site visits that employees explicitly log.
 - Follow-up timestamps and per-employee overdue/stale counts are exposed in the admin team report.
+- The lead management page offers a responsive eight-stage Kanban board with accessible stage selectors; the existing filterable table remains available as an alternate view.
+- The in-app reminder center groups active leads into overdue, due today, upcoming and unscheduled follow-ups, with activity logging and future-dated rescheduling. These are in-app reminders only; no email, SMS, WhatsApp or browser-push delivery is implied.
 - PWA manifest and custom icon support a standalone mobile home-screen launch. The service worker caches only the public shell; it deliberately never caches authenticated API responses or lead data.
 - PostgreSQL data storage; Docker Compose; API is bound to `127.0.0.1:8787`, and PostgreSQL is private to the Compose network.
 
@@ -38,6 +40,7 @@ docker compose up -d --build
 ```bash
 cd /opt/leadsrat
 python3 -m py_compile app/main.py
+node --test tests/frontend_features.test.js
 node -e "const fs=require('fs');new Function(fs.readFileSync('app/static/index.html','utf8').match(/<script>([\\s\\S]*?)<\\/script>/)[1])"
 python3 -m json.tool app/static/manifest.webmanifest >/dev/null
 docker compose config -q

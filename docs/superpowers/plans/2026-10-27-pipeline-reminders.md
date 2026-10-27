@@ -30,7 +30,7 @@
 
 ---
 
-### Task 1: Add behavior tests for reminder bucketing and existing frontend invariants
+### Task ### Task 1: Add behavior tests for reminder bucketing and existing frontend invariants
 
 **Files:**
 - Create: `tests/frontend_features.test.js`
@@ -40,12 +40,12 @@
 **Interfaces:**
 - Produces pure helper `reminderBucket(timestamp, now = new Date())` returning `overdue`, `today`, `upcoming`, or `invalid`; absent timestamp is handled by the unscheduled view, not by this helper.
 
-- [ ] Write Node built-in tests for overdue, due-today, upcoming, local midnight/day boundary, and invalid dates by extracting the pure helper from the HTML source.
-- [ ] Run `node --test tests/frontend_features.test.js`; verify it fails before the helper is added.
-- [ ] Add Python source guard tests for board stages, reminder navigation targets, and accessible non-drag stage controls.
-- [ ] Run the new tests and verify they pass once the helper and UI IDs exist.
+- [x] Write Node built-in tests for overdue, due-today, upcoming, local midnight/day boundary, and invalid dates by extracting the pure helper from the HTML source.
+- [x] Run `node --test tests/frontend_features.test.js`; verify it fails before the helper is added.
+- [x] Add Python source guard tests for board stages, reminder navigation targets, and accessible non-drag stage controls.
+- [x] Run the new tests and verify they pass once the helper and UI IDs exist.
 
-### Task 2: Implement the responsive pipeline board while preserving the table
+### Task ### Task 2: Implement the responsive pipeline board while preserving the table
 
 **Files:**
 - Modify: `app/static/index.html`
@@ -57,13 +57,13 @@
 - `updateLeadStage(leadId, status)` sends `PATCH /api/v1/leads/{id}/status` with the existing status contract and refreshes server state after success.
 - `renderPipelineBoard(filteredLeads)` renders the eight existing stages and an accessible stage selector per card.
 
-- [ ] Add failing tests asserting all stages, board/table toggles, and keyboard-operable stage selection.
-- [ ] Implement compact responsive board columns, a visible item count for each stage, lead cards with relevant buyer details, and an accessible status select.
-- [ ] Keep search/status filters consistent between board and table; keep table view available.
-- [ ] Verify a stage change uses the API and that failed API requests show an error without pretending the transition saved.
-- [ ] Run frontend tests, Python guards, and JavaScript syntax checks.
+- [x] Add failing tests asserting all stages, board/table toggles, and keyboard-operable stage selection.
+- [x] Implement compact responsive board columns, a visible item count for each stage, lead cards with relevant buyer details, and an accessible status select.
+- [x] Keep search/status filters consistent between board and table; keep table view available.
+- [x] Verify a stage change uses the API and that failed API requests show an error without pretending the transition saved.
+- [x] Run frontend tests, Python guards, and JavaScript syntax checks.
 
-### Task 3: Implement the in-app reminder center
+### Task ### Task 3: Implement the in-app reminder center
 
 **Files:**
 - Modify: `app/static/index.html`
@@ -75,19 +75,19 @@
 - `reminderBucket(timestamp, now = new Date())` uses browser-local calendar-day boundaries to return `overdue`, `today`, `upcoming`, or `invalid`.
 - `openReminderModal(leadId)` records rescheduling via `POST /api/v1/leads/{id}/activities` using `activity_type: follow_up` and a future `next_follow_up_at`.
 
-- [ ] Add failing tests for reminder navigation, all four buckets, future-date validation, and activity endpoint usage.
-- [ ] Add role-aware navigation and reminder sections for overdue, due today, upcoming, and unscheduled follow-ups.
-- [ ] Add explicit loading, empty, and API-error states and a record-activity/reschedule action per reminder.
-- [ ] Validate selected follow-up times are future; refresh server data after save.
-- [ ] Verify the employee and admin views continue to use the same session-scoped API.
+- [x] Add failing tests for reminder navigation, all four buckets, future-date validation, and activity endpoint usage.
+- [x] Add role-aware navigation and reminder sections for overdue, due today, upcoming, and unscheduled follow-ups.
+- [x] Add explicit loading, empty, and API-error states and a record-activity/reschedule action per reminder.
+- [x] Validate selected follow-up times are future; refresh server data after save.
+- [x] Verify the employee and admin views continue to use the same session-scoped API.
 
-### Task 4: Full verification and handoff
+### Task ### Task 4: Full verification and handoff
 
 **Files:**
 - Test: all tests and CI workflow
 - Modify: documentation only if implementation differs from the spec
 
-- [ ] Run Python regression tests, Node frontend tests, Python compile, JavaScript syntax check, manifest JSON check, Docker build, Compose config validation, and existing smoke checks.
-- [ ] Inspect the diff for accidental secrets, production data, new dependencies, broken accessibility controls, and changes outside the first slice.
+- [x] Run Python regression tests, Node frontend tests, Python compile, JavaScript syntax check, manifest JSON check, Docker build, Compose config validation, and existing smoke checks.
+- [x] Inspect the diff for accidental secrets, production data, new dependencies, broken accessibility controls, and changes outside the first slice.
 - [ ] Publish the reviewed changes on the feature branch and wait for CI evidence.
 - [ ] Confirm the production page/readiness endpoints remain healthy and that no production deployment occurred during implementation.
