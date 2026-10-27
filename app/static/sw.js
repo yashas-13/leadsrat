@@ -1,5 +1,5 @@
 /* Leadsrat PWA: cache only the public static shell, never authenticated API data. */
-const CACHE_NAME = "leadsrat-shell-v2";
+const CACHE_NAME = "leadsrat-shell-v3";
 const SHELL = [
   "/leadsrat/",
   "/leadsrat/manifest.webmanifest",

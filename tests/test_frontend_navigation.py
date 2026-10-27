@@ -40,3 +40,9 @@ def test_pipeline_board_and_reminder_workspace_targets_are_present():
         'reminderOverdue', 'reminderToday', 'reminderUpcoming',
         'reminderUnscheduled'
     } <= dom.ids
+
+
+def test_pwa_shell_cache_version_is_bumped_for_frontend_release():
+    source = (HTML.parent / "sw.js").read_text()
+    assert 'const CACHE_NAME = "leadsrat-shell-v3";' in source
+    assert 'keys.filter(key => key.startsWith("leadsrat-shell-") && key !== CACHE_NAME)' in source
