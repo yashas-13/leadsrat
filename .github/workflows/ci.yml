@@ -23,9 +23,11 @@ jobs:
         with:
           node-version: "20"
       - name: Install test runner
-        run: python -m pip install --disable-pip-version-check pytest
+        run: python -m pip install --disable-pip-version-check -r requirements.txt pytest httpx
       - name: Run regression tests
         run: pytest -q
+      - name: Test frontend reminder behavior
+        run: node --test tests/frontend_features.test.js
       - name: Compile Python
         run: python -m py_compile app/main.py
       - name: Validate PWA manifest

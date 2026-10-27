@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import csv
 import hashlib
+import io
 import hmac
 import json
 import os
@@ -9,7 +11,7 @@ import re
 import secrets
 import time
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 
 from typing import Annotated, Literal
 
@@ -17,8 +19,12 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Res
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import BigInteger, Boolean, DateTime, Integer, String, Text, create_engine, func, select, text, ForeignKey
+from sqlalchemy import BigInteger, Boolean, DateTime, Integer, String, Text, create_engine, func, select, text, ForeignKey, and_, or_
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+
+from app.lead_validation import validate_follow_up_timestamp
+from app.reporting import report_window, safe_csv_cell
+from app.team_workflows import build_balanced_assignment_plan
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 API_KEY = os.environ.get("LEADSRAT_API_KEY", "")
@@ -258,7 +264,10 @@ def require_api_key(request: Request, db: DB, x_api_key: Annotated[str | None, H
         if user and user.active and user.organization_id == actor.get("org"):
             request.state.actor = actor
             now = datetime.now(timezone.utc)
-            if user.last_seen_at is None or user.last_seen_at < now - timedelta(seconds=30):
+            last_seen_at = user.last_seen_at
+            if last_seen_at is not None and last_seen_at.tzinfo is None:
+                last_seen_at = last_seen_at.replace(tzinfo=timezone.utc)
+            if last_seen_at is None or last_seen_at < now - timedelta(seconds=30):
                 user.last_seen_at = now
                 db.commit()
             return
@@ -372,6 +381,24 @@ class LeadAssignment(BaseModel):
     employee_id: str | None = None
 
 
+class LeadBatch(BaseModel):
+    lead_ids: list[str] = Field(min_length=1, max_length=100)
+
+    @field_validator("lead_ids")
+    @classmethod
+    def validate_unique_lead_ids(cls, value: list[str]) -> list[str]:
+        cleaned = [item.strip() for item in value]
+        if any(not item or len(item) > 36 for item in cleaned):
+            raise ValueError("Lead IDs must be non-empty IDs no longer than 36 characters")
+        if len(set(cleaned)) != len(cleaned):
+            raise ValueError("Lead IDs must be unique")
+        return cleaned
+
+
+class BulkLeadAssignment(LeadBatch):
+    employee_id: str = Field(min_length=1, max_length=36)
+
+
 class ActivityCreate(BaseModel):
     activity_type: Literal["call", "whatsapp", "email", "site_visit", "meeting", "note", "status_change", "follow_up"] = "note"
     message: str = Field(default="", max_length=2000)
@@ -405,6 +432,120 @@ def assign_lead(lead_id: str, payload: LeadAssignment, request: Request, db: DB,
     return {"id": lead.id, "assigned_to": lead.assigned_to}
 
 
+def _select_org_leads_for_assignment(db: Session, actor: dict, lead_ids: list[str]) -> list[Lead]:
+    rows = db.scalars(
+        select(Lead)
+        .where(Lead.organization_id == actor["org"], Lead.id.in_(lead_ids))
+        .with_for_update()
+    ).all()
+    by_id = {lead.id: lead for lead in rows}
+    if len(by_id) != len(lead_ids):
+        raise HTTPException(status_code=404, detail="One or more selected leads were not found in this organization")
+    return [by_id[lead_id] for lead_id in lead_ids]
+
+
+@app.post("/api/v1/leads/assignments/bulk")
+def bulk_assign_leads(payload: BulkLeadAssignment, request: Request, db: DB, _auth: Auth):
+    actor = _require_role(request, "admin", "manager")
+    employee = db.scalar(
+        select(Employee).where(
+            Employee.id == payload.employee_id,
+            Employee.organization_id == actor["org"],
+            Employee.active.is_(True),
+            Employee.role == "agent",
+        )
+    )
+    if not employee:
+        raise HTTPException(status_code=400, detail="Choose an active agent from your organization")
+    leads_to_assign = _select_org_leads_for_assignment(db, actor, payload.lead_ids)
+    changed = 0
+    for lead in leads_to_assign:
+        if lead.assigned_to == employee.id:
+            continue
+        lead.assigned_to = employee.id
+        db.add(LeadActivity(
+            organization_id=actor["org"],
+            lead_id=lead.id,
+            actor_id=actor.get("sub"),
+            activity_type="note",
+            message=f"Lead bulk-assigned to {employee.name}",
+        ))
+        changed += 1
+    db.commit()
+    return {
+        "selected_count": len(leads_to_assign),
+        "changed_count": changed,
+        "employee_id": employee.id,
+        "employee_name": employee.name,
+        "lead_ids": [lead.id for lead in leads_to_assign],
+    }
+
+
+@app.post("/api/v1/leads/assignments/balance")
+def balance_lead_assignments(payload: LeadBatch, request: Request, db: DB, _auth: Auth):
+    actor = _require_role(request, "admin", "manager")
+    leads_to_assign = _select_org_leads_for_assignment(db, actor, payload.lead_ids)
+    agents = db.scalars(
+        select(Employee)
+        .where(
+            Employee.organization_id == actor["org"],
+            Employee.active.is_(True),
+            Employee.role == "agent",
+        )
+        .order_by(Employee.name.asc(), Employee.id.asc())
+    ).all()
+    if not agents:
+        raise HTTPException(status_code=409, detail="Create or reactivate an agent before balancing lead assignments")
+    agent_ids = [agent.id for agent in agents]
+    names = {agent.id: agent.name for agent in agents}
+    loads = {agent_id: 0 for agent_id in agent_ids}
+    workload_rows = db.execute(
+        select(Lead.assigned_to, func.count(Lead.id))
+        .where(
+            Lead.organization_id == actor["org"],
+            Lead.assigned_to.in_(agent_ids),
+            Lead.status.notin_(["won", "lost"]),
+            Lead.id.notin_(payload.lead_ids),
+        )
+        .group_by(Lead.assigned_to)
+    ).all()
+    loads.update({employee_id: count for employee_id, count in workload_rows if employee_id})
+    try:
+        plan = build_balanced_assignment_plan(
+            [lead.id for lead in leads_to_assign], loads, names
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    lead_by_id = {lead.id: lead for lead in leads_to_assign}
+    changed = 0
+    for item in plan:
+        lead = lead_by_id[item["lead_id"]]
+        employee_id = item["employee_id"]
+        if lead.assigned_to != employee_id:
+            lead.assigned_to = employee_id
+            db.add(LeadActivity(
+                organization_id=actor["org"],
+                lead_id=lead.id,
+                actor_id=actor.get("sub"),
+                activity_type="note",
+                message=f"Lead assigned by workload balancing to {names[employee_id]}",
+            ))
+            changed += 1
+    db.commit()
+    return {
+        "selected_count": len(plan),
+        "changed_count": changed,
+        "assignments": [
+            {
+                "lead_id": item["lead_id"],
+                "employee_id": item["employee_id"],
+                "employee_name": names[item["employee_id"]],
+            }
+            for item in plan
+        ],
+    }
+
+
 @app.get("/api/v1/leads/{lead_id}/activities")
 def list_lead_activities(lead_id: str, request: Request, db: DB, _auth: Auth, limit: int = Query(default=50, ge=1, le=100)):
     actor = _actor(request)
@@ -422,6 +563,10 @@ def create_lead_activity(lead_id: str, payload: ActivityCreate, request: Request
     if actor.get("role") == "readonly": raise HTTPException(status_code=403, detail="Read-only access")
     lead = db.scalar(_scoped(select(Lead).where(Lead.id == lead_id), Lead, actor))
     if not lead: raise HTTPException(status_code=404, detail="Lead not found")
+    try:
+        validate_follow_up_timestamp(payload.activity_type, payload.next_follow_up_at)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     if payload.activity_type == "call":
         if not payload.call_summary:
             raise HTTPException(status_code=422, detail="A call summary is required for every logged call")
@@ -455,6 +600,256 @@ def list_follow_ups(request: Request, db: DB, _auth: Auth, overdue_only: bool = 
     if overdue_only:
         query = query.where(Lead.next_follow_up_at < now)
     return list(db.scalars(query.order_by(Lead.next_follow_up_at.asc()).limit(limit)).all())
+
+
+
+def _report_dates(start_date: date | None, end_date: date | None):
+    try:
+        return report_window(start_date, end_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _report_cohort_stage_count(db: Session, org_id: str, start_at: datetime, end_exclusive: datetime, condition) -> int:
+    query = (
+        select(func.count(func.distinct(LeadActivity.lead_id)))
+        .join(Lead, Lead.id == LeadActivity.lead_id)
+        .where(
+            LeadActivity.organization_id == org_id,
+            Lead.organization_id == org_id,
+            Lead.created_at >= start_at,
+            Lead.created_at < end_exclusive,
+            LeadActivity.created_at >= start_at,
+            LeadActivity.created_at < end_exclusive,
+            condition,
+        )
+    )
+    return int(db.scalar(query) or 0)
+
+
+@app.get("/api/v1/reports/summary")
+def reports_summary(
+    request: Request,
+    db: DB,
+    _auth: Auth,
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+):
+    actor = _require_role(request, "admin", "manager")
+    start_at, end_exclusive, start_day, end_day = _report_dates(start_date, end_date)
+    org_id = actor["org"]
+    now = datetime.now(timezone.utc)
+
+    created_count = int(db.scalar(
+        select(func.count(Lead.id)).where(
+            Lead.organization_id == org_id,
+            Lead.created_at >= start_at,
+            Lead.created_at < end_exclusive,
+        )
+    ) or 0)
+
+    contact_condition = or_(
+        LeadActivity.activity_type.in_(["call", "whatsapp", "email", "meeting", "site_visit"]),
+        and_(
+            LeadActivity.activity_type == "status_change",
+            LeadActivity.message.like("% to contacted"),
+        ),
+    )
+    contacted_count = _report_cohort_stage_count(db, org_id, start_at, end_exclusive, contact_condition)
+    qualified_count = _report_cohort_stage_count(
+        db, org_id, start_at, end_exclusive,
+        and_(LeadActivity.activity_type == "status_change", LeadActivity.message.like("% to qualified")),
+    )
+    won_count = _report_cohort_stage_count(
+        db, org_id, start_at, end_exclusive,
+        and_(LeadActivity.activity_type == "status_change", LeadActivity.message.like("% to won")),
+    )
+    lost_count = _report_cohort_stage_count(
+        db, org_id, start_at, end_exclusive,
+        and_(LeadActivity.activity_type == "status_change", LeadActivity.message.like("% to lost")),
+    )
+
+    pipeline_rows = db.execute(
+        select(Lead.status, func.count(Lead.id))
+        .where(Lead.organization_id == org_id)
+        .group_by(Lead.status)
+    ).all()
+    stages = ["new", "contacted", "qualified", "site_visit", "negotiation", "won", "lost", "nurture"]
+    current_pipeline = {stage: 0 for stage in stages}
+    current_pipeline.update({stage: int(count) for stage, count in pipeline_rows if stage in current_pipeline})
+
+    overdue_now = int(db.scalar(
+        select(func.count(Lead.id)).where(
+            Lead.organization_id == org_id,
+            Lead.status.notin_(["won", "lost"]),
+            Lead.next_follow_up_at.is_not(None),
+            Lead.next_follow_up_at < now,
+        )
+    ) or 0)
+    unscheduled_now = int(db.scalar(
+        select(func.count(Lead.id)).where(
+            Lead.organization_id == org_id,
+            Lead.status.notin_(["won", "lost"]),
+            Lead.next_follow_up_at.is_(None),
+        )
+    ) or 0)
+    activity_count = int(db.scalar(
+        select(func.count(LeadActivity.id)).where(
+            LeadActivity.organization_id == org_id,
+            LeadActivity.created_at >= start_at,
+            LeadActivity.created_at < end_exclusive,
+        )
+    ) or 0)
+    follow_up_count = int(db.scalar(
+        select(func.count(LeadActivity.id)).where(
+            LeadActivity.organization_id == org_id,
+            LeadActivity.activity_type == "follow_up",
+            LeadActivity.created_at >= start_at,
+            LeadActivity.created_at < end_exclusive,
+        )
+    ) or 0)
+
+    employees = db.scalars(
+        select(Employee).where(Employee.organization_id == org_id).order_by(Employee.name.asc())
+    ).all()
+    lead_count_rows = db.execute(
+        select(Lead.assigned_to, Lead.status, func.count(Lead.id))
+        .where(Lead.organization_id == org_id, Lead.assigned_to.is_not(None))
+        .group_by(Lead.assigned_to, Lead.status)
+    ).all()
+    counts_by_employee: dict[str, dict[str, int]] = {}
+    for employee_id, lead_status, count in lead_count_rows:
+        row = counts_by_employee.setdefault(employee_id, {})
+        row[lead_status] = int(count)
+    overdue_rows = db.execute(
+        select(Lead.assigned_to, func.count(Lead.id))
+        .where(
+            Lead.organization_id == org_id,
+            Lead.assigned_to.is_not(None),
+            Lead.status.notin_(["won", "lost"]),
+            Lead.next_follow_up_at.is_not(None),
+            Lead.next_follow_up_at < now,
+        )
+        .group_by(Lead.assigned_to)
+    ).all()
+    overdue_by_employee = {employee_id: int(count) for employee_id, count in overdue_rows}
+    activity_rows = db.execute(
+        select(LeadActivity.actor_id, func.count(LeadActivity.id))
+        .where(
+            LeadActivity.organization_id == org_id,
+            LeadActivity.created_at >= start_at,
+            LeadActivity.created_at < end_exclusive,
+        )
+        .group_by(LeadActivity.actor_id)
+    ).all()
+    activity_by_employee = {employee_id: int(count) for employee_id, count in activity_rows if employee_id}
+    team_rows = []
+    for employee in employees:
+        counts = counts_by_employee.get(employee.id, {})
+        assigned_total = sum(counts.values())
+        active_total = sum(count for stage, count in counts.items() if stage not in ("won", "lost"))
+        team_rows.append({
+            "id": employee.id,
+            "name": employee.name,
+            "role": employee.role,
+            "active": employee.active,
+            "assigned_leads": assigned_total,
+            "active_leads": active_total,
+            "qualified_leads": counts.get("qualified", 0),
+            "won_leads": counts.get("won", 0),
+            "lost_leads": counts.get("lost", 0),
+            "overdue_follow_ups": overdue_by_employee.get(employee.id, 0),
+            "activities_in_period": activity_by_employee.get(employee.id, 0),
+        })
+
+    def percentage(numerator: int, denominator: int) -> float:
+        return round(numerator * 100.0 / denominator, 1) if denominator else 0.0
+
+    return {
+        "date_range": {
+            "start_date": start_day.isoformat(),
+            "end_date": end_day.isoformat(),
+            "timezone": "Asia/Kolkata",
+        },
+        "cohort": {
+            "leads_created": created_count,
+            "contacted_leads": contacted_count,
+            "qualified_leads": qualified_count,
+            "won_leads": won_count,
+            "lost_leads": lost_count,
+            "conversion_percentages": {
+                "created_to_contacted": percentage(contacted_count, created_count),
+                "contacted_to_qualified": percentage(qualified_count, contacted_count),
+                "qualified_to_won": percentage(won_count, qualified_count),
+            },
+            "definition": "Conversions count distinct leads created inside the selected date range with the matching activity/status transition also recorded inside that range.",
+        },
+        "current_pipeline": current_pipeline,
+        "follow_up": {
+            "follow_up_activities_in_period": follow_up_count,
+            "all_activities_in_period": activity_count,
+            "overdue_active_leads_now": overdue_now,
+            "unscheduled_active_leads_now": unscheduled_now,
+        },
+        "team": team_rows,
+    }
+
+
+@app.get("/api/v1/reports/export.csv")
+def export_reports_csv(
+    request: Request,
+    db: DB,
+    _auth: Auth,
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
+):
+    actor = _require_role(request, "admin", "manager")
+    start_at, end_exclusive, start_day, end_day = _report_dates(start_date, end_date)
+    org_id = actor["org"]
+    rows = db.execute(
+        select(Lead, Employee.name)
+        .outerjoin(Employee, and_(Employee.id == Lead.assigned_to, Employee.organization_id == org_id))
+        .where(
+            Lead.organization_id == org_id,
+            Lead.created_at >= start_at,
+            Lead.created_at < end_exclusive,
+        )
+        .order_by(Lead.created_at.desc(), Lead.id.asc())
+    ).all()
+    output = io.StringIO(newline="")
+    writer = csv.writer(output, lineterminator="\r\n")
+    writer.writerow([
+        "lead_id", "lead_name", "phone", "email", "locality", "property_type",
+        "budget_min_inr", "budget_max_inr", "source", "stage", "assigned_employee",
+        "created_at", "next_follow_up_at",
+    ])
+    for lead, employee_name in rows:
+        min_budget = "" if lead.budget_min_paise is None else format(lead.budget_min_paise / 100, ".2f")
+        max_budget = "" if lead.budget_max_paise is None else format(lead.budget_max_paise / 100, ".2f")
+        writer.writerow([
+            safe_csv_cell(lead.id),
+            safe_csv_cell(lead.name),
+            safe_csv_cell(lead.phone_e164),
+            safe_csv_cell(lead.email),
+            safe_csv_cell(lead.locality),
+            safe_csv_cell(lead.property_type),
+            safe_csv_cell(min_budget),
+            safe_csv_cell(max_budget),
+            safe_csv_cell(lead.source),
+            safe_csv_cell(lead.status),
+            safe_csv_cell(employee_name),
+            safe_csv_cell(lead.created_at.isoformat() if lead.created_at else None),
+            safe_csv_cell(lead.next_follow_up_at.isoformat() if lead.next_follow_up_at else None),
+        ])
+    filename = f"leadsrat-leads-{start_day.isoformat()}-to-{end_day.isoformat()}.csv"
+    return Response(
+        content="\ufeff" + output.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @app.get("/api/v1/team/overview")
