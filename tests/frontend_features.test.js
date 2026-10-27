@@ -91,3 +91,9 @@ test('report date fields use Asia/Kolkata calendar date rather than browser UTC 
   assert.equal(format(new Date('2026-10-27T18:29:59.000Z')), '2026-10-27');
   assert.equal(format(new Date('2026-10-27T18:30:00.000Z')), '2026-10-28');
 });
+
+
+test('employee creation controls are restricted to administrator role in the UI', () => {
+  assert.match(html, /addEmployeeBtn\.classList\.toggle\('hidden',!currentUser\|\|currentUser\.role!=='admin'\)/);
+  assert.match(html, /Only organization admins can create employees\. Current role:/);
+});
