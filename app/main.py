@@ -262,6 +262,11 @@ def require_api_key(request: Request, db: DB, x_api_key: Annotated[str | None, H
     if actor:
         user = db.get(Employee, actor.get("sub"))
         if user and user.active and user.organization_id == actor.get("org"):
+            # Role claims are signed, but can become stale after an admin changes
+            # an employee's role. Always authorize using the current database role.
+            actor["role"] = user.role
+            actor["name"] = user.name
+            actor["email"] = user.email
             request.state.actor = actor
             now = datetime.now(timezone.utc)
             last_seen_at = user.last_seen_at
