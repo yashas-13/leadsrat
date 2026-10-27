@@ -89,8 +89,8 @@
 
 - [x] Run Python regression tests, Node frontend tests, Python compile, JavaScript syntax check, manifest JSON check, Docker build, Compose config validation, and existing smoke checks.
 - [x] Inspect the diff for accidental secrets, production data, new dependencies, broken accessibility controls, and changes outside the first slice.
-- [ ] Publish the reviewed changes on the feature branch and wait for CI evidence.
-- [ ] Confirm the production page/readiness endpoints remain healthy and that no production deployment occurred during implementation.
+- [x] Publish the reviewed changes on the feature branch and wait for CI evidence.
+- [x] Confirm the production page/readiness endpoints remain healthy and that no production deployment occurred during implementation.
 
 
 ### Task 5: Date-ranged reporting and CSV export
@@ -123,5 +123,5 @@
 - [x] Run all Python tests (including SQLite-backed API integration tests) and Node frontend behavior tests.
 - [x] Run Python compile, inline JavaScript syntax, manifest JSON, Compose config, Docker image build, and `git diff --check`.
 - [x] Run isolated browser checks for successful/failed stage changes, all reminder buckets, rescheduling, report data, bulk assignment, mobile navigation and role restrictions.
-- [ ] Publish the expanded implementation to the existing feature branch and wait for successful GitHub CI.
-- [ ] Recheck production homepage/readiness and the production smoke script; do not deploy the unmerged feature.
+- [x] Publish the expanded implementation to the existing feature branch and wait for successful GitHub CI.
+- [x] Recheck production homepage/readiness and the production smoke script; do not deploy the unmerged feature.
