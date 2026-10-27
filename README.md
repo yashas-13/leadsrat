@@ -20,6 +20,8 @@ Portal choice is checked by the login API against the account role. Admin/manage
 - Follow-up timestamps and per-employee overdue/stale counts are exposed in the admin team report.
 - The lead management page offers a responsive eight-stage Kanban board with accessible stage selectors; the existing filterable table remains available as an alternate view.
 - The in-app reminder center groups active leads into overdue, due today, upcoming and unscheduled follow-ups, with activity logging and future-dated rescheduling. These are in-app reminders only; no email, SMS, WhatsApp or browser-push delivery is implied.
+- Admins and managers can view date-ranged sales reports (calendar days in Asia/Kolkata), stage-transition conversion, current pipeline, follow-up workload, and team activity; scoped CSV exports are protected against spreadsheet formula injection.
+- Admins and managers can select up to 100 leads for bulk assignment to an active agent or balance selected leads across active agents by current active-lead workload. Each changed assignment is recorded in the lead activity history.
 - PWA manifest and custom icon support a standalone mobile home-screen launch. The service worker caches only the public shell; it deliberately never caches authenticated API responses or lead data.
 - PostgreSQL data storage; Docker Compose; API is bound to `127.0.0.1:8787`, and PostgreSQL is private to the Compose network.
 

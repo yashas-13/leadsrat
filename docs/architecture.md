@@ -5,6 +5,8 @@
 - Employee/field workspace: `/leadsrat/employee` opens the mobile portal. It includes assigned lead cards, direct call/WhatsApp links, activity notes, status updates and follow-up dates.
 - Lead management: an eight-stage responsive Kanban board, accessible stage selectors, lead search/status filters, and the retained table view.
 - Reminder center: overdue, due-today, upcoming and unscheduled active-lead follow-ups, with in-app activity logging and future-dated rescheduling through the session-scoped activity API. No outbound message or push-notification delivery is configured.
+- Reports: organization-admin/manager-only date-ranged cohort conversion and current-pipeline/team workload summaries; date boundaries use Asia/Kolkata and CSV exports include only leads created in the selected range. Formula-like cells are neutralized for spreadsheet safety.
+- Team workflows: unassigned-lead filtering, bulk assignment to an active organization agent and least-loaded-agent balancing. Batch endpoints are limited to 100 IDs, validate organization ownership before mutation and record assignment activities without a schema change.
 - The login API validates the account role against the requested portal. UI hiding is convenience only; backend authorization remains authoritative.
 - PWA manifest/icon support mobile installation. Service worker caches a small public application shell only; `/leadsrat/api/` responses and private lead data are never cached.
 

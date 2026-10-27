@@ -30,7 +30,7 @@
 
 ---
 
-### Task ### Task 1: Add behavior tests for reminder bucketing and existing frontend invariants
+### Task 1: Add behavior tests for reminder bucketing and existing frontend invariants
 
 **Files:**
 - Create: `tests/frontend_features.test.js`
@@ -45,7 +45,7 @@
 - [x] Add Python source guard tests for board stages, reminder navigation targets, and accessible non-drag stage controls.
 - [x] Run the new tests and verify they pass once the helper and UI IDs exist.
 
-### Task ### Task 2: Implement the responsive pipeline board while preserving the table
+### Task 2: Implement the responsive pipeline board while preserving the table
 
 **Files:**
 - Modify: `app/static/index.html`
@@ -63,7 +63,7 @@
 - [x] Verify a stage change uses the API and that failed API requests show an error without pretending the transition saved.
 - [x] Run frontend tests, Python guards, and JavaScript syntax checks.
 
-### Task ### Task 3: Implement the in-app reminder center
+### Task 3: Implement the in-app reminder center
 
 **Files:**
 - Modify: `app/static/index.html`
@@ -81,7 +81,7 @@
 - [x] Validate selected follow-up times are future; refresh server data after save.
 - [x] Verify the employee and admin views continue to use the same session-scoped API.
 
-### Task ### Task 4: Full verification and handoff
+### Task 4: Full verification and handoff
 
 **Files:**
 - Test: all tests and CI workflow
@@ -91,3 +91,37 @@
 - [x] Inspect the diff for accidental secrets, production data, new dependencies, broken accessibility controls, and changes outside the first slice.
 - [ ] Publish the reviewed changes on the feature branch and wait for CI evidence.
 - [ ] Confirm the production page/readiness endpoints remain healthy and that no production deployment occurred during implementation.
+
+
+### Task 5: Date-ranged reporting and CSV export
+
+**Files:**
+- Create: `app/reporting.py`
+- Modify: `app/main.py`, `app/static/index.html`, `README.md`, `docs/architecture.md`
+- Test: `tests/test_reporting_helpers.py`, `tests/test_reporting_and_team_api.py`, `tests/test_reporting_navigation.py`
+
+- [x] Write tests first for Asia/Kolkata calendar-day bounds, default 30-day ranges, partial/reversed/oversized ranges, and CSV formula-injection prefixes.
+- [x] Implement admin/manager-only report summary and CSV endpoints, organization-scoped cohort/current-pipeline/team/follow-up metrics, and bounded date filtering.
+- [x] Escape untrusted spreadsheet cells, set CSV attachment/nosniff headers, and test that exports exclude other organizations' records.
+- [x] Add a responsive Reports page with a date range selector, conversion funnel, current pipeline/team workload tables, loading/error states, and CSV export.
+- [x] Verify in an isolated Chromium run that authorized users see report data while read-only users cannot navigate to the page.
+
+### Task 6: Bulk assignment and workload balancing
+
+**Files:**
+- Create: `app/team_workflows.py`
+- Modify: `app/main.py`, `app/static/index.html`, `README.md`, `docs/architecture.md`
+- Test: `tests/test_team_workflows.py`, `tests/test_reporting_and_team_api.py`, `tests/test_reporting_navigation.py`
+
+- [x] Write deterministic least-loaded-agent balancing tests, including name tie-breaks and invalid input.
+- [x] Add admin/manager-only endpoints for bulk assignment and balancing (maximum 100 unique leads), validate organization ownership before mutation, and write assignment activity history.
+- [x] Add an unassigned-only filter, cross-view selectable lead checkboxes, active-agent selector, bulk assign and balance controls.
+- [x] Verify cross-tenant batches fail without partial writes, successful assignments persist, and read-only users cannot see or use these controls.
+
+### Task 7: Final verification and release handoff
+
+- [x] Run all Python tests (including SQLite-backed API integration tests) and Node frontend behavior tests.
+- [x] Run Python compile, inline JavaScript syntax, manifest JSON, Compose config, Docker image build, and `git diff --check`.
+- [x] Run isolated browser checks for successful/failed stage changes, all reminder buckets, rescheduling, report data, bulk assignment, mobile navigation and role restrictions.
+- [ ] Publish the expanded implementation to the existing feature branch and wait for successful GitHub CI.
+- [ ] Recheck production homepage/readiness and the production smoke script; do not deploy the unmerged feature.

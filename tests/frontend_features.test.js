@@ -78,3 +78,16 @@ test('reminder eligibility excludes won and lost leads but keeps active stages',
   assert.equal(eligible('won'), false);
   assert.equal(eligible('lost'), false);
 });
+
+function loadReportDateFieldValue() {
+  const match = html.match(/function\s+reportDateFieldValue\s*\(\s*d\s*\)\s*\{[\s\S]*?\}/);
+  assert.ok(match, 'reportDateFieldValue(date) must format Asia/Kolkata calendar dates');
+  return new Function(match[0] + '; return reportDateFieldValue;')();
+}
+
+test('report date fields use Asia/Kolkata calendar date rather than browser UTC date', () => {
+  const format = loadReportDateFieldValue();
+  assert.equal(format(new Date('2026-10-26T18:45:00.000Z')), '2026-10-27');
+  assert.equal(format(new Date('2026-10-27T18:29:59.000Z')), '2026-10-27');
+  assert.equal(format(new Date('2026-10-27T18:30:00.000Z')), '2026-10-28');
+});
